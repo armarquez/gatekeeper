@@ -1,3 +1,5 @@
+# Staging dirs
+.staging/
 
 # Binaries for programs and plugins
 *.exe
@@ -57,7 +59,6 @@ bld/
 #!owners*.txt
 /.corext
 /.gen*
-/vendor
 /deploy/secret
 /secret
 junit.xml

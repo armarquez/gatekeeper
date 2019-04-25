@@ -5,7 +5,7 @@ REPOSITORY ?= $(REGISTRY)/open-policy-agent/gatekeeper
 
 IMG := $(REPOSITORY):latest
 
-VERSION := v2.0.1
+VERSION := v3.0.0
 
 BUILD_COMMIT := $(shell ./build/get-build-commit.sh)
 BUILD_TIMESTAMP := $(shell ./build/get-build-timestamp.sh)
@@ -19,8 +19,18 @@ LDFLAGS := "-X github.com/open-policy-agent/gatekeeper/version.Version=$(VERSION
 all: test manager
 
 # Run tests
-test: generate fmt vet manifests
+native-test: generate fmt vet manifests
 	go test ./pkg/... ./cmd/... -coverprofile cover.out
+
+# Hook to run docker tests
+.PHONY: test
+test:
+	rm -rf .staging/test
+	mkdir -p .staging/test
+	cp -r * .staging/test
+	-rm .staging/test/Dockerfile
+	cp test/Dockerfile .staging/test/Dockerfile
+	docker build .staging/test -t gatekeeper-test && docker run -t gatekeeper-test
 
 # Build manager binary
 manager: generate fmt vet
@@ -40,9 +50,9 @@ install: manifests
 
 # Deploy controller in the configured Kubernetes cluster in ~/.kube/config
 deploy: manifests
-  # TODO: Re-enable below command once we have crds to deploy
-	# kubectl apply -f config/crds
-	kustomize build config/default | kubectl apply -f -
+	kubectl apply -f config/crds
+	kubectl apply -f vendor/github.com/open-policy-agent/frameworks/constraint/config/crds
+	kustomize build config | kubectl apply -f -
 
 # Generate manifests e.g. CRD, RBAC etc.
 manifests:
@@ -86,7 +96,7 @@ docker-push-release:  docker-tag-release
 docker-build:
 	docker build . -t ${IMG}
 	@echo "updating kustomize image patch file for manager resource"
-	sed -i'' -e 's@image: .*@image: '"${IMG}"'@' ./config/default/manager_image_patch.yaml
+	sed -i'' -e 's@image: .*@image: '"${IMG}"'@' ./config/manager_image_patch.yaml
 
 docker-build-ci:
 	docker build . -t $(IMG) -f Dockerfile_ci
@@ -100,3 +110,9 @@ travis-dev-deploy: docker-login docker-build-ci docker-push-dev
 
 # Travis Release
 travis-dev-release: docker-login docker-build-ci docker-push-release
+
+# Delete gatekeeper from a cluster. Note this is not a complete uninstall, just a dev convenience
+uninstall:
+	-kubectl delete -n gatekeeper-system Config config
+	sleep 5
+	kubectl delete ns gatekeeper-system
